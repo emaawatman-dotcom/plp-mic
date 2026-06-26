@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLP Micrófono</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Arial', sans-serif;
+    background: #0D2B4E;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .card {
+    background: white;
+    border-radius: 16px;
+    padding: 28px 24px;
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .logo {
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: #0D2B4E;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+  .logo span { color: #F56A00; }
+  .subtitulo {
+    font-size: .78rem;
+    color: #888;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .btn-mic {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    border: none;
+    background: #0D2B4E;
+    color: white;
+    font-size: 2.5rem;
+    cursor: pointer;
+    transition: all .2s;
+    margin: 0 auto 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(13,43,78,.3);
+  }
+  .btn-mic:hover { transform: scale(1.05); }
+  .btn-mic.activo {
+    background: #C0392B;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 4px 16px rgba(192,57,43,.4); }
+    50% { box-shadow: 0 4px 32px rgba(192,57,43,.8); }
+  }
+  .estado {
+    font-size: .88rem;
+    color: #555;
+    margin-bottom: 16px;
+    min-height: 20px;
+    font-weight: 600;
+  }
+  .transcripcion {
+    background: #f4f6f9;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: .85rem;
+    color: #333;
+    min-height: 60px;
+    text-align: left;
+    margin-bottom: 16px;
+    border: 1.5px solid #e0e0e0;
+    line-height: 1.5;
+    display: none;
+  }
+  .campos-detectados {
+    background: #d4edda;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: .82rem;
+    color: #155724;
+    text-align: left;
+    margin-bottom: 16px;
+    border: 1.5px solid #c3e6cb;
+    display: none;
+    line-height: 1.7;
+  }
+  .btn-enviar {
+    width: 100%;
+    padding: 13px;
+    background: #F56A00;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: .5px;
+    display: none;
+    transition: background .2s;
+  }
+  .btn-enviar:hover { background: #e05e00; }
+  .btn-reintentar {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    color: #0D2B4E;
+    border: 2px solid #0D2B4E;
+    border-radius: 10px;
+    font-size: .88rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+    display: none;
+  }
+  .error {
+    background: #f8d7da;
+    border: 1.5px solid #f5c6cb;
+    color: #721c24;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: .82rem;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .instruccion {
+    font-size: .78rem;
+    color: #aaa;
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">PLP <span>WD</span></div>
+  <div class="subtitulo">Describir conjunto por voz</div>
+
+  <button class="btn-mic" id="btnMic" onclick="toggleMic()">🎙️</button>
+  <div class="estado" id="estado">Tocá el micrófono y describí el conjunto</div>
+
+  <div class="error" id="errorBox"></div>
+  <div class="transcripcion" id="transcripcion"></div>
+  <div class="campos-detectados" id="camposDetectados"></div>
+
+  <button class="btn-enviar" id="btnEnviar" onclick="enviarDatos()">✅ Usar estos datos</button>
+  <button class="btn-reintentar" id="btnReintentar" onclick="reiniciar()">🔄 Intentar de nuevo</button>
+
+  <div class="instruccion">
+    Ejemplo: <em>"dos ramales, ángulo 45 grados, diez mil kilos, largo dos metros, G10 trece milímetros, gancho ojo con traba, cliente SECCO"</em>
+  </div>
+</div>
+
+<script>
+var recognition = null;
+var activo = false;
+var camposGlobales = {};
+
+function toggleMic() {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    mostrarError('Tu navegador no soporta reconocimiento de voz. Usá Chrome.');
+    return;
+  }
+  if (activo) {
+    detener();
+  } else {
+    iniciar();
+  }
+}
+
+function iniciar() {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang = 'es-AR';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  activo = true;
+  document.getElementById('btnMic').classList.add('activo');
+  document.getElementById('btnMic').textContent = '⏹️';
+  document.getElementById('estado').textContent = '🎙️ Escuchando... (tocá para detener)';
+  document.getElementById('transcripcion').style.display = 'block';
+  document.getElementById('transcripcion').textContent = '...';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('camposDetectados').style.display = 'none';
+  document.getElementById('btnEnviar').style.display = 'none';
+  document.getElementById('btnReintentar').style.display = 'none';
+
+  recognition.onresult = function(e) {
+    var texto = '';
+    for (var i = e.resultIndex; i < e.results.length; i++) {
+      texto += e.results[i][0].transcript;
+    }
+    document.getElementById('transcripcion').textContent = texto;
+    if (e.results[e.results.length-1].isFinal) {
+      interpretar(texto);
+    }
+  };
+
+  recognition.onerror = function(e) {
+    detener();
+    if (e.error === 'not-allowed') {
+      mostrarError('Permiso de micrófono denegado. Habilitalo en la configuración del navegador.');
+    } else if (e.error === 'no-speech') {
+      mostrarError('No se detectó audio. Intentá de nuevo.');
+    } else {
+      mostrarError('Error: ' + e.error);
+    }
+  };
+
+  recognition.onend = function() { detener(); };
+  recognition.start();
+}
+
+function detener() {
+  activo = false;
+  if (recognition) { try { recognition.stop(); } catch(e) {} }
+  document.getElementById('btnMic').classList.remove('activo');
+  document.getElementById('btnMic').textContent = '🎙️';
+  document.getElementById('estado').textContent = 'Tocá el micrófono para intentar de nuevo';
+}
+
+function interpretar(texto) {
+  var t = texto.toLowerCase()
+    .replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i')
+    .replace(/ó/g,'o').replace(/ú/g,'u').replace(/ñ/g,'n');
+
+  var campos = {};
+  var log = [];
+
+  // RAMAS
+  var ramasMap = {'un ramal':1,'1 ramal':1,'una rama':1,'1 rama':1,'dos ramales':2,'2 ramales':2,'dos ramas':2,'2 ramas':2,'tres ramales':3,'3 ramales':3,'tres ramas':3,'3 ramas':3,'cuatro ramales':4,'4 ramales':4,'cuatro ramas':4,'4 ramas':4};
+  for (var k in ramasMap) { if (t.indexOf(k) >= 0) { campos.ramas = ramasMap[k]; log.push('✅ Ramas: ' + ramasMap[k]); break; } }
+  if (!campos.ramas) { var mR = t.match(/(\d)\s*ramal/); if (mR) { campos.ramas = parseInt(mR[1]); log.push('✅ Ramas: ' + campos.ramas); } }
+
+  // ANGULO
+  var angulosMap = {'cero grado':'0°','0 grado':'0°','treinta grado':'30°','30 grado':'30°','cuarenta y cinco':'45°','45 grado':'45°','sesenta grado':'60°','60 grado':'60°','no definido':'No definido','no se':'No definido'};
+  for (var k in angulosMap) { if (t.indexOf(k) >= 0) { campos.angulo = angulosMap[k]; log.push('✅ Ángulo: ' + angulosMap[k]); break; } }
+  if (!campos.angulo) { var mA = t.match(/(\d+)\s*grado/); if (mA) { var ang = parseInt(mA[1]); var va = [0,30,45,60]; var ca = va.reduce(function(a,b){ return Math.abs(b-ang)<Math.abs(a-ang)?b:a; }); campos.angulo = ca + '°'; log.push('✅ Ángulo: ' + campos.angulo); } }
+
+  // KG
+  var mKg = t.match(/(\d[\d\.\s]*)\s*(kilo|kg|kilogramo)/);
+  if (mKg) { var kg = parseInt(mKg[1].replace(/\s/g,'').replace('.','').replace(',','')); campos.kg = kg; log.push('✅ Kg: ' + kg); }
+
+  // LARGO
+  var mL = t.match(/(\d+[,\.]?\d*)\s*(metro|m\b)/);
+  if (mL) { var lr = parseFloat(mL[1].replace(',','.')); if (lr > 0 && lr < 100) { campos.largoRamal = lr; log.push('✅ Largo: ' + lr + 'm'); } }
+
+  // GRADO
+  if (t.indexOf('g10') >= 0 || t.indexOf('grado 10') >= 0 || t.indexOf('grado diez') >= 0) { campos.grado = 'G10'; log.push('✅ Grado: G10'); }
+  else if (t.indexOf('g8') >= 0 || t.indexOf('grado 8') >= 0 || t.indexOf('grado ocho') >= 0) { campos.grado = 'G8'; log.push('✅ Grado: G8'); }
+
+  // DIAMETRO
+  var diamsMap = {'seis mm':6,'6 mm':6,'6mm':6,'ocho mm':8,'8 mm':8,'8mm':8,'diez mm':10,'10 mm':10,'10mm':10,'trece mm':13,'13 mm':13,'13mm':13,'dieciseis mm':16,'16 mm':16,'16mm':16,'veinte mm':20,'20 mm':20,'20mm':20,'veintidos mm':22,'22 mm':22,'22mm':22};
+  for (var k in diamsMap) { if (t.indexOf(k) >= 0) { campos.diam = diamsMap[k]; log.push('✅ Diámetro: ' + diamsMap[k] + 'mm'); break; } }
+  if (!campos.diam) { var mD = t.match(/(\d+)\s*mm/); if (mD) { var d = parseInt(mD[1]); var vd = [6,8,10,13,16,20,22]; if (vd.indexOf(d) >= 0) { campos.diam = d; log.push('✅ Diámetro: ' + d + 'mm'); } } }
+
+  // EXTREMO INFERIOR
+  var ganchosMap = {'ojo cierre':'Gancho ojo con cierre automatico','gancho ojo cierre':'Gancho ojo con cierre automatico','ojo traba':'Gancho ojo con traba de seguridad','gancho ojo traba':'Gancho ojo con traba de seguridad','horquilla traba':'Gancho horquilla con traba de seguridad','horquilla cierre':'Gancho horquilla con cierre automatico','giratorio traba':'Gancho giratorio con traba de seguridad','giratorio cierre':'Gancho giratorio con cierre automatico','fundicion':'Gancho fundicion','grillete roscado':'Grillete con perno roscado','grillete chaveta':'Grillete con perno y chaveta','cadena sola':'Cadena sola','eslabon maestro':'Eslabon maestro'};
+  for (var k in ganchosMap) { if (t.indexOf(k) >= 0) { campos.extInf = ganchosMap[k]; log.push('✅ Extremo inf: ' + ganchosMap[k]); break; } }
+
+  // ACORTA CADENA
+  if (t.indexOf('acorta cadena') >= 0 || t.indexOf('acortador') >= 0 || t.indexOf('con acorta') >= 0) { campos.acorta = 'SI'; log.push('✅ Acorta cadena: SI'); }
+  else if (t.indexOf('sin acorta') >= 0) { campos.acorta = 'NO'; }
+
+  // CLIENTE
+  var mC = t.match(/cliente\s+([a-z0-9\s]+?)(?:\s*,|\s*\.|$)/);
+  if (mC) { var cli = mC[1].trim().toUpperCase(); if (cli.length > 1) { campos.cliente = cli; log.push('✅ Cliente: ' + cli); } }
+
+  // OBSERVACIONES
+  var mO = t.match(/observacion(?:es)?\s*[:\s]+(.+?)(?:\s*\.|$)/);
+  if (mO) { campos.obs = mO[1].trim(); log.push('✅ Obs: ' + campos.obs); }
+
+  camposGlobales = campos;
+
+  var divCampos = document.getElementById('camposDetectados');
+  if (log.length > 0) {
+    divCampos.style.display = 'block';
+    divCampos.innerHTML = '<strong>Campos reconocidos:</strong><br>' + log.join('<br>');
+    document.getElementById('estado').textContent = '✅ ' + log.length + ' campo' + (log.length > 1 ? 's' : '') + ' reconocido' + (log.length > 1 ? 's' : '');
+    document.getElementById('btnEnviar').style.display = 'block';
+    document.getElementById('btnReintentar').style.display = 'block';
+  } else {
+    divCampos.style.display = 'none';
+    mostrarError('No se reconocieron campos. Intentá con más detalle.');
+    document.getElementById('btnReintentar').style.display = 'block';
+  }
+}
+
+function enviarDatos() {
+  if (window.opener) {
+    window.opener.postMessage({ tipo: 'plp-voz', campos: camposGlobales }, '*');
+    window.close();
+  } else {
+    mostrarError('Error: no se puede comunicar con la app. Cerrá esta ventana y reintentá.');
+  }
+}
+
+function reiniciar() {
+  document.getElementById('transcripcion').style.display = 'none';
+  document.getElementById('transcripcion').textContent = '';
+  document.getElementById('camposDetectados').style.display = 'none';
+  document.getElementById('btnEnviar').style.display = 'none';
+  document.getElementById('btnReintentar').style.display = 'none';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('estado').textContent = 'Tocá el micrófono y describí el conjunto';
+  camposGlobales = {};
+}
+
+function mostrarError(msg) {
+  var e = document.getElementById('errorBox');
+  e.textContent = msg;
+  e.style.display = 'block';
+  document.getElementById('estado').textContent = 'Hubo un problema';
+}
+</script>
+</body>
+</html>
